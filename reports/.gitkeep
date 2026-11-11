@@ -1,0 +1,12 @@
+# 运行产物根目录（已在 .gitignore 中忽略本目录下的其他内容）。
+#
+# 每次运行生成 reports/<run_id>/，内含：
+#   result.json      机器可读结果，唯一事实来源
+#   report.html      单文件 HTML 报告（截图默认 base64 内嵌，可直接分发）
+#   run.log          完整日志，含异常栈与每步解析后的实际参数
+#   screenshots/     截图
+#   trees/           失败时的控件树快照，对着它改 target
+#   app_logs/        被测应用自身的 stdout / stderr
+#
+# reports/inspect/<时间戳>/ 是 --inspect 的产物，与用例运行分开存放。
+# reports/latest/ 指向最近一次运行。

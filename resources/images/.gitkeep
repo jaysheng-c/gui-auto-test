@@ -1,0 +1,9 @@
+# 图像兜底（vision）的模板图片放这里。
+#
+# 当前版本 vision.py 只是空入口：target 里写 image 字段会抛 VisionNotImplementedError。
+# 启用后本目录存放裁剪好的控件截图（PNG），流程中用相对路径引用，如
+# "target": { "image": "main_btnExport.png" }，根目录由 config/default.yaml 的
+# vision.image_dir 指定。
+#
+# 采集模板图的要点：只截控件本身、不要带周边背景；在目标分辨率与缩放比例下采集；
+# 同一控件若有多种状态（悬停/禁用）需分别存图。

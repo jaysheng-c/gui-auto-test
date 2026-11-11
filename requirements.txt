@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+# app GUI 自动化测试框架依赖
+# 安装: .venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# 注意: 第一行的 coding 声明不可删除。
+# pip 读取 requirements.txt 时，若无 BOM 且无 coding cookie，会退回系统区域编码
+# （中文 Windows 为 GBK）解码，本文件的 UTF-8 中文注释将导致 UnicodeDecodeError。
+
+# --- GUI 自动化驱动 ---
+pywinauto>=0.6.9      # MS UI Automation 驱动，Qt 应用需 backend="uia"（已验证 0.6.9 + Python 3.11.5）
+comtypes>=1.2.0       # pywinauto UIA 后端依赖
+pywin32>=306          # Win32 API（焦点检测、进程、截图）
+six>=1.16.0           # pywinauto 依赖
+
+# --- 进程与配置 ---
+psutil>=5.9.0         # 进程健康检查与残留清理
+PyYAML>=6.0           # config/default.yaml
+jsonschema>=4.20      # test_flow_file/flow.schema.json 校验
+
+# --- 产物与报告 ---
+Pillow>=10.0          # 截图
+Jinja2>=3.1           # HTML 报告渲染
+rich>=13.0            # 控制台输出
+
+# --- 图像兜底（本期未启用，vision.py 仅留空入口）---
+# 启用图像定位时再取消注释并安装：
+# numpy>=1.24
+# opencv-python>=4.8
+# rapidocr-onnxruntime>=1.3   # OCR，可选

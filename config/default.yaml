@@ -1,0 +1,89 @@
+# app GUI 自动化测试框架 —— 全局默认配置
+#
+# 优先级（高 → 低）：CLI 参数 > 套件 JSON 的 app/settings 段 > 本文件 > 代码内置默认值
+# 所有相对路径都基于项目根目录（auto_test.py 所在目录）解析，从任意工作目录调用结果一致。
+
+app:
+  # 被测应用路径。缺省留空，由 --execute=E:/path/app.exe 指定；
+  # 也可以设置环境变量 app_EXE，省得每次敲一长串路径。
+  path: null
+  args: []
+  workdir: null
+  # Qt6 只支持 uia 后端；win32 后端拿不到 Qt 控件树，不要改
+  backend: uia
+  startup_timeout: 60
+  # 残留进程清理用的进程名，留空则由 path 推导（app.exe -> app）
+  process_name: null
+  env:
+    # 关键项：确保 Qt 的 UIA 桥被激活。缺了它控件树可能只有一个空 Pane，
+    # 表现为"所有控件都找不到"，极易误判成用例写错。
+    QT_ACCESSIBILITY: "1"
+  main_window:
+    # 二选一即可，title 精确匹配优先。
+    #
+    # 下面的 title_re 是按命名习惯推定的占位值 —— 拿到真实 app.exe 后，
+    # 先跑 `python auto_test.py --inspect --execute=... --keep-open`，
+    # 用 reports/inspect/*/windows.txt 里的真实标题收窄这个正则。
+    title: null
+    title_re: "^app"
+    # Qt 窗口类名形如 Qt643QWindowIcon，随 Qt 小版本变化，不可依赖
+    class_name: null
+    timeout: 60
+
+run:
+  # 步骤定位/等待的默认超时（秒），JSON 里写了 timeout 的以 JSON 为准
+  default_timeout: 15
+  poll_interval: 0.5
+  # 步骤失败重试次数。每次重试都会重新定位控件，绝不复用已失效的 COM 引用
+  retries: 1
+  # 全局超时放大系数。慢机器 / 首次冷启动填 1.5，不必逐个改 JSON
+  timeout_scale: 1.0
+  # 单条用例失败后是否继续跑后续用例
+  continue_on_error: false
+  # 截图时机：always | on_fail | never
+  screenshot: on_fail
+  # 失败时导出控件树快照。对着快照改 target 是最高效的排查方式，建议常开
+  dump_tree_on_fail: true
+  # 操作前校验被测应用是否在前台。GUI 自动化独占前台，运行期间人为切窗口
+  # 会让点击落到别处且表现为随机失败；检测到焦点丢失会等待重试，仍失败则
+  # 在报告中标注 FOCUS_LOST，以便与真实缺陷区分
+  foreground_check: true
+  # 点击方式：mouse=click_input() 真实鼠标；invoke=UIA Invoke Pattern。
+  # Qt 的 UIA Pattern 支持不完整，必须用 mouse
+  click_by: mouse
+  # 整套流程重复轮数，等价于 --repeat
+  repeat: 1
+  # 控件树搜索深度上限。留空不限制；主窗口层级很深导致步骤慢时可以设成 12~16
+  search_depth: null
+  # 是否允许 run_py 这类逃生口动作。默认关闭，需要时显式加 --allow-script
+  allow_script: false
+
+report:
+  dir: reports
+  html: true
+  json: true
+  # 截图 base64 内嵌，产出单文件 HTML 可直接分发；嫌文件大就用 --no-embed
+  embed_screenshots: true
+
+log:
+  level: INFO
+  file: true
+
+vision:
+  # 【本期空入口】图像定位尚未实现。enabled 打开或 target 写了 image 字段时，
+  # 框架会正常路由到 app_at/vision.py，由它抛 VisionNotImplementedError。
+  # 启用前需先安装 opencv-python / numpy（见 requirements.txt 末尾注释）。
+  enabled: false
+  image_dir: resources/images
+  threshold: 0.85
+
+# 全局变量，可被 suite.vars / flow.vars / data_set 逐层覆盖，也可用 --var K=V 追加。
+# 值里可以写 ${其他变量} 与 ${env:NAME}，解析发生在步骤执行前（惰性），
+# 因此未被任何步骤引用的变量即使取值失败也不会影响运行。
+vars:
+  username: tester
+  # 密码不要写进版本库，用环境变量注入：set app_PWD=xxx
+  password: "${env:app_PWD}"
+
+# --execute 之外不带 --suite/--flow 时使用的默认套件
+default_suite: suite_smoke.json

@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://app.autotest.local/schemas/flow.schema.json",
+  "title": "app 自动化测试流程 / 套件",
+  "description": "test_flow_file 目录下 JSON 文件的结构约束。顶层 oneOf 区分「套件」与「流程」：含 flows 字段的是套件，含 id/steps/tags 之一的是流程。动作专属参数（如 button、dx、keys）不做封闭约束，以便新增动作时无需同步改 schema；但 target 的字段是封闭集合，拼错会静默改变匹配行为，因此严格校验。",
+  "oneOf": [
+    { "$ref": "#/$defs/suite" },
+    { "$ref": "#/$defs/flow" }
+  ],
+
+  "$defs": {
+    "suite": {
+      "type": "object",
+      "title": "测试套件",
+      "description": "聚合多个流程文件，并声明本次运行共享的变量与配置覆盖。",
+      "required": ["flows"],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "description": "编辑器引用本 schema 用（写 \"./flow.schema.json\" 即可获得补全与即时校验），不参与运行时行为。"
+        },
+        "suite": {
+          "type": "string",
+          "description": "套件标识，缺省取文件名。"
+        },
+        "name": { "type": "string", "description": "套件展示名，出现在报告标题。" },
+        "description": { "type": "string" },
+        "vars": {
+          "$ref": "#/$defs/varsObject",
+          "description": "套件级变量，可被 flow.vars / data_set 覆盖。值支持 ${var} 与 ${env:NAME}。"
+        },
+        "app": {
+          "type": "object",
+          "description": "覆盖 config/default.yaml 的 app 段，仅影响本套件。",
+          "additionalProperties": true,
+          "properties": {
+            "args": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "启动参数，追加在可执行文件之后。"
+            },
+            "workdir": { "type": ["string", "null"], "description": "工作目录，缺省为 exe 所在目录。" },
+            "startup_timeout": { "type": "number", "minimum": 1, "description": "启动超时（秒）。" },
+            "process_name": { "type": "string", "description": "残留进程清理用的进程名，缺省取 exe 文件名。" },
+            "env": {
+              "type": "object",
+              "additionalProperties": { "type": ["string", "number", "boolean"] },
+              "description": "注入被测进程的环境变量。QT_ACCESSIBILITY=1 用于激活 Qt 的 UIA 桥。"
+            },
+            "main_window": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "主窗口识别条件。Qt 窗口 class_name 随版本变化，只应按标题识别。",
+              "properties": {
+                "title": { "type": "string", "description": "窗口标题，精确匹配。" },
+                "title_re": { "type": "string", "description": "窗口标题正则，如 ^app.*。" },
+                "class_name": { "type": "string", "description": "窗口类名，Qt 下不建议依赖。" },
+                "timeout": { "type": "number", "minimum": 1, "description": "等待主窗口出现的超时（秒）。" }
+              }
+            }
+          }
+        },
+        "settings": {
+          "type": "object",
+          "description": "覆盖 config/default.yaml 的 run 段，如 continue_on_error、timeout_scale。",
+          "additionalProperties": true,
+          "properties": {
+            "continue_on_error": { "type": "boolean", "description": "单条用例失败后是否继续跑后续用例。" },
+            "timeout_scale": { "type": "number", "exclusiveMinimum": 0, "description": "全局超时放大系数，慢机器上调。" },
+            "default_timeout": { "type": "number", "minimum": 0 },
+            "retries": { "type": "integer", "minimum": 0, "description": "步骤级重试次数，每次重试都会重新定位控件。" },
+            "screenshot": { "enum": ["always", "on_fail", "never"] },
+            "click_by": { "enum": ["mouse", "invoke"], "description": "Qt 的 UIA Invoke Pattern 支持不完整，推荐 mouse。" },
+            "foreground_check": { "type": "boolean", "description": "操作前校验被测应用是否在前台。" }
+          }
+        },
+        "flows": {
+          "type": "array",
+          "description": "按执行顺序列出的流程文件。可写文件名、相对路径，.json 后缀可省略。",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "flow": {
+      "type": "object",
+      "title": "测试流程（用例）",
+      "description": "一个用例：setup → steps → teardown。data_set 非空时按行重复执行整个用例。",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["steps"] },
+        { "required": ["setup"] },
+        { "required": ["tags"] }
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "description": "编辑器引用本 schema 用（写 \"./flow.schema.json\" 即可获得补全与即时校验），不参与运行时行为。"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$",
+          "description": "用例唯一标识，用于 --case 过滤与报告分组。缺省取文件名，建议显式声明。"
+        },
+        "name": { "type": "string", "description": "用例中文名，出现在报告里。" },
+        "description": { "type": "string", "description": "用例意图、前置条件、预期结果的补充说明。" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "标签，用于 --tags 过滤，如 smoke / login / P0。"
+        },
+        "priority": {
+          "enum": ["P0", "P1", "P2", "P3"],
+          "description": "优先级。P0 为核心冒烟，必须每次全绿。"
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 1,
+          "description": "整条用例的超时（秒），超时判定失败并进入 teardown。"
+        },
+        "enabled": { "type": "boolean", "description": "false 时跳过该用例，报告记为 SKIP。" },
+        "skip_reason": { "type": "string", "description": "跳过原因，会展示在报告中。" },
+        "vars": {
+          "$ref": "#/$defs/varsObject",
+          "description": "用例级变量，优先级高于套件级。"
+        },
+        "data_set": {
+          "type": "array",
+          "description": "数据驱动：每个对象是一轮迭代的变量，用例整体按行数重复执行。",
+          "items": { "$ref": "#/$defs/varsObject" }
+        },
+        "setup": {
+          "type": "array",
+          "description": "前置步骤。失败会导致用例直接判失败，但仍执行 teardown。",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "steps": {
+          "type": "array",
+          "description": "主体步骤，按顺序执行。",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "teardown": {
+          "type": "array",
+          "description": "清理步骤。无论前面成功失败都必然执行，其中的失败只记警告。",
+          "items": { "$ref": "#/$defs/step" }
+        }
+      }
+    },
+
+    "varsObject": {
+      "type": "object",
+      "description": "变量表。值支持 ${var} 引用其他变量、${env:NAME} 读环境变量。",
+      "additionalProperties": true
+    },
+
+    "step": {
+      "type": "object",
+      "title": "步骤",
+      "description": "一次动作或一次断言。action 必填；target 对需要定位控件的动作必填。除下列已声明字段外，其余键会作为动作专属参数传入（如 click 的 button/double、click_offset 的 dx/dy、type_keys 的 keys），详见 docs/flow_authoring.md。",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "description": "动作名。完整清单见 docs/flow_authoring.md；拼写错误会在 --validate 与运行时被检出。"
+        },
+        "id": {
+          "type": "string",
+          "description": "步骤标识，用于日志、报告与产物文件命名。缺省用序号。"
+        },
+        "desc": { "type": "string", "description": "这一步在做什么，用中文写清楚，报告里直接展示。" },
+
+        "target": { "$ref": "#/$defs/target" },
+        "window": {
+          "type": "string",
+          "description": "窗口别名，等价于 target.window 的简写。默认 main；由 switch_window 动作注册其他别名。"
+        },
+
+        "value": {
+          "description": "写入类动作的值，如 set_text 的文本、select_item 的选项、set_var 的变量值。"
+        },
+        "expect": {
+          "description": "断言类动作的期望值。整串为单个 ${var} 时保留原始类型（数字仍按数字比较）。"
+        },
+
+        "timeout": {
+          "type": "number",
+          "minimum": 0,
+          "description": "本步骤定位/等待超时（秒），会再乘以全局 timeout_scale。缺省用 run.default_timeout。"
+        },
+        "interval": {
+          "type": "number",
+          "minimum": 0.01,
+          "description": "轮询间隔（秒），缺省用 run.poll_interval。"
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "失败重试次数。每次重试都会重新定位控件，绝不复用已失效的 COM 引用。"
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "true 时本步骤失败只记警告，不判定用例失败。用于非关键的可选交互。"
+        },
+        "on_fail": {
+          "enum": ["abort", "continue", "skip_flow"],
+          "description": "失败处置：abort 终止本用例剩余步骤（默认）；continue 记录失败但继续；skip_flow 跳过剩余步骤直接 teardown 且不计失败。"
+        },
+        "screenshot": {
+          "enum": ["always", "on_fail", "never"],
+          "description": "截图时机，覆盖全局 run.screenshot。"
+        },
+        "dump_tree": {
+          "type": "boolean",
+          "description": "失败时是否导出控件树快照，覆盖全局 run.dump_tree_on_fail。对着快照改 target 是最高效的排查方式。"
+        },
+
+        "steps": {
+          "type": "array",
+          "description": "repeat 动作的子步骤。",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "then": {
+          "type": "array",
+          "description": "if 条件成立时执行的子步骤。",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "else": {
+          "type": "array",
+          "description": "if 条件不成立时执行的子步骤。",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "cond": {
+          "type": "object",
+          "description": "if 动作的条件。支持 {var,equals|not_equals|contains|gt|lt|is_true|is_false} 与 {exists|not_exists: <target>} 两类写法。",
+          "additionalProperties": true
+        },
+        "flow": {
+          "type": "string",
+          "description": "include 动作引用的子流程文件名。子流程在运行时加载，共享调用方的变量作用域。"
+        },
+        "vars": {
+          "$ref": "#/$defs/varsObject",
+          "description": "include 动作传给子流程的额外变量，只在子流程内可见。"
+        },
+        "count": {
+          "type": ["integer", "string"],
+          "minimum": 1,
+          "description": "repeat 动作的重复次数；与 over 二选一。"
+        },
+        "over": {
+          "description": "repeat 动作要遍历的数组；每轮把元素绑定到 item_var、下标绑定到 index_var。"
+        },
+        "item_var": { "type": "string", "description": "遍历时元素变量名，默认 item。" },
+        "index_var": { "type": "string", "description": "遍历时下标变量名，默认 index。" },
+
+        "by": {
+          "enum": ["mouse", "invoke", "auto", "value", "keyboard"],
+          "description": "click 类动作的触发方式，或 set_text 的写入方式。mouse=真实鼠标事件（Qt 推荐），invoke=UIA Invoke Pattern，value=ValuePattern 赋值（不受输入法影响）。"
+        },
+        "button": { "enum": ["left", "right", "middle"], "description": "鼠标按键，默认 left。" },
+        "double": { "type": "boolean", "description": "是否双击。" },
+        "dx": { "type": "number", "description": "click_offset 的横向偏移（像素，相对控件左上角）。" },
+        "dy": { "type": "number", "description": "click_offset 的纵向偏移（像素，相对控件左上角）。" },
+        "keys": { "type": "string", "description": "type_keys / hotkey 的按键序列，如 ^a、{ENTER}、%{F4}。" },
+        "key": { "type": "string", "description": "press_key 的单个按键名，如 ENTER、TAB、F5。" },
+        "literal": { "type": "boolean", "description": "true 时把 keys 当纯文本转义后输入，避免特殊字符被当成组合键。" },
+        "path": {
+          "type": "string",
+          "description": "menu_select 的菜单路径（如 文件->保存），或 set_file_path 要填入的文件路径。"
+        },
+        "force": { "type": "boolean", "description": "close_window / kill_process 是否强制结束。" },
+        "direction": { "enum": ["up", "down", "left", "right"], "description": "scroll 方向。" },
+        "amount": { "enum": ["line", "page", "document"], "description": "scroll 单位。" },
+        "alias": { "type": "string", "description": "switch_window 注册的窗口别名。" },
+        "property": { "type": "string", "description": "assert_property 要校验的属性名。" },
+        "state": { "type": ["boolean", "string"], "description": "check / uncheck / expand 的目标状态。" },
+        "level": { "enum": ["debug", "info", "warning", "error"], "description": "log 动作的日志级别。" },
+        "message": { "type": "string", "description": "log 动作要输出的内容。" },
+        "name": { "type": "string", "description": "set_var 的变量名。" }
+      }
+    },
+
+    "target": {
+      "type": "object",
+      "title": "控件定位条件",
+      "description": "多个字段同时给出时为 AND 组合。定位优先级建议：auto_id > name/name_re > type+index，并尽量用 parents 收窄搜索范围。字段集是封闭的：拼错字段名不会报错但会静默改变匹配行为，因此这里严格校验。",
+      "additionalProperties": false,
+      "properties": {
+        "window": {
+          "type": "string",
+          "description": "从哪个窗口开始查找，默认 main。别名由 switch_window 动作注册。"
+        },
+        "auto_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "【首选】UIA AutomationId，对应 Qt 的 objectName。稳定性远高于文本匹配，改界面文案不会失效。"
+        },
+        "name": { "type": "string", "description": "控件可见文本，精确匹配（UIA Name 属性）。" },
+        "name_re": { "type": "string", "description": "控件可见文本，正则匹配（用 re.search 语义）。" },
+        "type": {
+          "type": "string",
+          "description": "UIA 控件类型，如 Button / Edit / List / ListItem / CheckBox / TabItem / Text / Pane / Window / MenuItem。"
+        },
+        "class": { "type": "string", "description": "控件类名。Qt 下区分度低（如 QWidget、QLabel），仅作辅助条件。" },
+        "class_re": { "type": "string", "description": "控件类名正则。" },
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "匹配到多个时取第几个，【从 1 开始计数】（框架内部会转成 pywinauto 的 0 基 found_index）。"
+        },
+        "parents": {
+          "type": "array",
+          "description": "祖先链，自上而下书写。强烈建议提供：Qt 主窗口控件树常有十几层，不加祖先链会触发全树深搜，单步可能耗时数秒甚至超时。",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "从父容器向下的最大搜索层数，用于进一步限制搜索开销。"
+        },
+        "best_match": {
+          "type": "string",
+          "description": "pywinauto 的模糊文本匹配，容错高但可能命中意外控件，仅建议调试期使用。"
+        },
+        "control_id": { "type": "integer", "description": "Win32 控件 ID，Qt 下通常无效。" },
+        "desc": { "type": "string", "description": "对这个定位条件的说明，仅用于日志与报告可读性。" },
+        "image": {
+          "type": "string",
+          "description": "【预留，当前版本未实现】图像模板相对路径（相对 vision.image_dir）。本期使用会抛 VisionNotImplementedError，请改用 auto_id / name / type / parents 定位。"
+        }
+      }
+    }
+  }
+}

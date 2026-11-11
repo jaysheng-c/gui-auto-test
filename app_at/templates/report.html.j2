@@ -1,0 +1,272 @@
+{# app 自动化测试报告模板 —— 渲染为单文件 HTML（CSS 内联，截图 base64 内嵌） #}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>app 自动化测试报告 - {{ result.run_id }}</title>
+<style>
+  :root {
+    --pass: #1a7f37; --fail: #cf222e; --skip: #9a6700; --error: #8250df;
+    --bg: #f6f8fa; --card: #fff; --border: #d0d7de; --text: #1f2328; --muted: #656d76;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+  .card {
+    flex: 1 1 130px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .card .n { font-size: 26px; font-weight: 600; line-height: 1.2; }
+  .card .l { color: var(--muted); font-size: 12px; }
+  .card.pass .n { color: var(--pass); } .card.fail .n { color: var(--fail); }
+  .card.skip .n { color: var(--skip); } .card.error .n { color: var(--error); }
+  .banner { padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-weight: 600; }
+  .banner.ok { background: #dafbe1; color: var(--pass); border: 1px solid #aceebb; }
+  .banner.bad { background: #ffebe9; color: var(--fail); border: 1px solid #ffcecb; }
+  .flags { margin: 10px 0; }
+  .flag {
+    display: inline-block; background: #fff8c5; color: var(--skip);
+    border: 1px solid #d4a72c66; border-radius: 12px; padding: 2px 10px;
+    font-size: 12px; margin: 2px 4px 2px 0;
+  }
+  .toolbar { margin: 14px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 12px; cursor: pointer; font-size: 13px; color: var(--text);
+  }
+  button:hover { background: var(--bg); }
+  details.case {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 10px; overflow: hidden;
+  }
+  details.case > summary {
+    cursor: pointer; padding: 11px 14px; list-style: none;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  details.case > summary::-webkit-details-marker { display: none; }
+  details.case > summary:hover { background: var(--bg); }
+  .badge {
+    font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 11px;
+    color: #fff; letter-spacing: .3px; white-space: nowrap;
+  }
+  .badge.passed { background: var(--pass); } .badge.failed { background: var(--fail); }
+  .badge.skipped { background: var(--skip); } .badge.error { background: var(--error); }
+  .case-id { font-weight: 600; font-family: ui-monospace, Consolas, monospace; }
+  .case-name { color: var(--muted); }
+  .grow { flex: 1; }
+  .dur { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tag {
+    background: #ddf4ff; color: #0969da; border-radius: 10px;
+    padding: 1px 8px; font-size: 11px;
+  }
+  .prio { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .body { padding: 0 14px 14px; border-top: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid #eaeef2; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; background: var(--bg); }
+  tr.failed td { background: #fff5f5; }
+  tr.skipped td { color: var(--muted); }
+  td.st { white-space: nowrap; font-weight: 600; }
+  td.st.passed { color: var(--pass); } td.st.failed { color: var(--fail); }
+  td.st.skipped { color: var(--skip); } td.st.error { color: var(--error); }
+  code, .mono { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 12px; }
+  pre {
+    background: #f6f8fa; border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 11px; overflow-x: auto; margin: 6px 0; font-size: 12px; white-space: pre-wrap;
+  }
+  .exp { color: var(--pass); } .act { color: var(--fail); }
+  .shot { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .kv { display: grid; grid-template-columns: 160px 1fr; gap: 3px 12px; font-size: 12px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  a { color: #0969da; text-decoration: none; } a:hover { text-decoration: underline; }
+  .hidden { display: none !important; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>app GUI 自动化测试报告</h1>
+  <div class="sub">
+    运行编号 <span class="mono">{{ result.run_id }}</span> ·
+    开始 {{ result.started_at }} · 耗时 {{ '%.1f'|format(result.duration) }}s ·
+    生成于 {{ generated_at }}
+  </div>
+
+  {% set c = result.counts %}
+  <div class="cards">
+    <div class="card"><div class="n">{{ result.total }}</div><div class="l">用例总数</div></div>
+    <div class="card pass"><div class="n">{{ c[Status.PASS] }}</div><div class="l">通过</div></div>
+    <div class="card fail"><div class="n">{{ c[Status.FAIL] }}</div><div class="l">失败</div></div>
+    <div class="card error"><div class="n">{{ c[Status.ERROR] }}</div><div class="l">框架错误</div></div>
+    <div class="card skip"><div class="n">{{ c[Status.SKIP] }}</div><div class="l">跳过</div></div>
+    <div class="card"><div class="n">{{ result.pass_rate }}%</div><div class="l">通过率</div></div>
+  </div>
+
+  {% if result.failed_cases %}
+    <div class="banner bad">存在 {{ result.failed_cases|length }} 条未通过用例，详见下方红色条目。</div>
+  {% else %}
+    <div class="banner ok">全部用例通过。</div>
+  {% endif %}
+
+  {% if result.flags %}
+    <div class="flags">
+      {% for f in result.flags %}<span class="flag">{{ f }}</span>{% endfor %}
+      <div class="meta">上述标记表示运行期间检测到环境问题（如 FOCUS_LOST 前台焦点被抢占），
+        相关失败需先排除环境因素再判定为产品缺陷。</div>
+    </div>
+  {% endif %}
+
+  <div class="toolbar">
+    <button onclick="toggleAll(true)">全部展开</button>
+    <button onclick="toggleAll(false)">全部折叠</button>
+    <button onclick="filterCases('failed')" id="btn-failed">只看未通过</button>
+    <button onclick="filterCases('all')" id="btn-all">显示全部</button>
+  </div>
+
+  {% if result.failed_cases %}
+  <h2>失败摘要</h2>
+  <div class="card" style="flex:none">
+    <table>
+      <thead><tr><th style="width:220px">用例</th><th>首个失败点</th></tr></thead>
+      <tbody>
+      {% for case in result.failed_cases %}
+        {% set bad = case.steps|selectattr('status','in',[Status.FAIL, Status.ERROR])|list %}
+        <tr class="failed">
+          <td><span class="case-id">{{ case.case_id }}</span><br><span class="meta">{{ case.name }}</span></td>
+          <td>
+            {% if bad %}
+              <strong>{{ bad[0].label }}</strong>
+              {% if bad[0].desc %} — {{ bad[0].desc }}{% endif %}
+              <pre>{{ bad[0].error or case.error or '（无错误信息）' }}</pre>
+              {% if bad[0].expected is not none or bad[0].actual is not none %}
+                <div><span class="exp">期望: {{ bad[0].expected }}</span> ·
+                     <span class="act">实际: {{ bad[0].actual }}</span></div>
+              {% endif %}
+            {% else %}
+              <pre>{{ case.error or '（用例级错误，无步骤明细）' }}</pre>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% for suite in result.suites %}
+  <h2>
+    套件：{{ suite.name or suite.suite if suite.name else suite.name }}
+    <span class="meta">（{{ suite.cases|length }} 条用例，{{ '%.1f'|format(suite.duration) }}s）</span>
+  </h2>
+
+    {% for case in suite.cases %}
+    <details class="case" data-status="{{ case.status }}"
+             {% if case.status in [Status.FAIL, Status.ERROR] %}open{% endif %}>
+      <summary>
+        <span class="badge {{ case.status }}">{{ case.status|upper }}</span>
+        <span class="case-id">{{ case.case_id }}</span>
+        <span class="case-name">{{ case.name }}</span>
+        {% if case.iteration > 1 %}<span class="prio">第 {{ case.iteration }} 轮</span>{% endif %}
+        {% if case.priority %}<span class="prio">{{ case.priority }}</span>{% endif %}
+        {% for t in case.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+        <span class="grow"></span>
+        {% for f in case.flags %}<span class="flag">{{ f }}</span>{% endfor %}
+        <span class="dur">{{ '%.2f'|format(case.duration) }}s</span>
+      </summary>
+      <div class="body">
+        {% if case.skip_reason %}
+          <p class="meta">跳过原因：{{ case.skip_reason }}</p>
+        {% endif %}
+        {% if case.error %}
+          <pre>{{ case.error }}</pre>
+        {% endif %}
+        {% if case.steps %}
+        <table>
+          <thead>
+            <tr>
+              <th style="width:52px">阶段</th><th style="width:120px">步骤</th>
+              <th style="width:86px">结果</th><th>说明 / 目标</th>
+              <th style="width:64px">耗时</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for st in case.steps %}
+            <tr class="{{ st.status }}">
+              <td class="meta">{{ st.phase }}</td>
+              <td><span class="mono">{{ st.id or st.index }}</span><br>
+                  <span class="meta">{{ st.action }}</span></td>
+              <td class="st {{ st.status }}">{{ st.status|upper }}</td>
+              <td>
+                {% if st.desc %}{{ st.desc }}{% endif %}
+                {% if st.target %}<div class="meta mono">{{ st.target }}</div>{% endif %}
+                {% if st.message %}<div class="meta">{{ st.message }}</div>{% endif %}
+                {% for w in st.warnings %}<div class="meta">⚠ {{ w }}</div>{% endfor %}
+                {% if st.error %}
+                  <pre>{{ st.error }}</pre>
+                  {% if st.expected is not none or st.actual is not none %}
+                    <div><span class="exp">期望: {{ st.expected }}</span> ·
+                         <span class="act">实际: {{ st.actual }}</span></div>
+                  {% endif %}
+                {% endif %}
+                {% if st.tree %}
+                  <div class="meta">控件树快照：<a href="{{ st.tree }}">{{ st.tree }}</a></div>
+                {% endif %}
+                {% if st.screenshot_b64 %}
+                  <img class="shot" alt="失败截图" src="data:image/png;base64,{{ st.screenshot_b64 }}">
+                {% elif st.screenshot %}
+                  <div class="meta">截图：<a href="{{ st.screenshot }}">{{ st.screenshot }}</a></div>
+                {% endif %}
+              </td>
+              <td class="dur">{{ '%.2f'|format(st.duration) }}s</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <p class="meta">无步骤记录。</p>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  {% endfor %}
+
+  <h2>运行环境</h2>
+  <div class="card" style="flex:none">
+    <dl class="kv">
+      {% for k, v in result.environment.items() %}
+        <dt>{{ k }}</dt><dd>{{ v }}</dd>
+      {% endfor %}
+      <dt>命令行</dt><dd class="mono">{{ result.command_line }}</dd>
+      <dt>退出码</dt><dd>{{ result.exit_code }}</dd>
+    </dl>
+  </div>
+
+  <footer>由 app_at 框架生成 · {{ result.run_id }}</footer>
+</div>
+
+<script>
+function toggleAll(open) {
+  document.querySelectorAll('details.case').forEach(function (d) { d.open = open; });
+}
+function filterCases(mode) {
+  document.querySelectorAll('details.case').forEach(function (d) {
+    var bad = d.dataset.status === 'failed' || d.dataset.status === 'error';
+    d.classList.toggle('hidden', mode === 'failed' && !bad);
+    if (mode === 'failed' && bad) { d.open = true; }
+  });
+  document.getElementById('btn-failed').style.fontWeight = mode === 'failed' ? '700' : '400';
+  document.getElementById('btn-all').style.fontWeight = mode === 'all' ? '700' : '400';
+}
+</script>
+</body>
+</html>
