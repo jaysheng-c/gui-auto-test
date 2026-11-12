@@ -152,6 +152,7 @@ class RunContext:
         *,
         title: str | None = None,
         title_re: str | None = None,
+        auto_id: str | None = None,
         process: int | None = None,
         class_name: str | None = None,
     ) -> WindowRef:
@@ -160,6 +161,7 @@ class RunContext:
             alias=MAIN_WINDOW_ALIAS,
             title=title,
             title_re=title_re,
+            auto_id=auto_id,
             class_name=class_name,
             process=process,
             source="app",

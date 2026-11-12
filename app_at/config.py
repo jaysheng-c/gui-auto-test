@@ -50,11 +50,15 @@ class MainWindowConfig:
     """主窗口识别条件。
 
     Qt 窗口的 ``class_name`` 形如 ``Qt643QWindowIcon``，随 Qt 小版本变化，
-    **不可依赖**，因此以标题（精确或正则）作为唯一稳定的识别手段。
+    **不可依赖**；标题也可能被同进程的弹层窗口撞名（app 的下拉弹层标题
+    同样是 ``app``），只用标题会命中多个顶层窗口而报
+    ``ElementAmbiguousError``。因此 ``auto_id``（Qt objectName →
+    AutomationId）是最稳的主键，弹层没有 objectName，靠它即可唯一确定主窗口。
     """
 
     title: str | None = None
     title_re: str | None = None
+    auto_id: str | None = None
     class_name: str | None = None
     timeout: float = 60.0
 
@@ -205,10 +209,10 @@ class Settings:
         if self.run.repeat < 1:
             raise ConfigError("run.repeat 必须 >= 1")
         mw = self.app.main_window
-        if not mw.title and not mw.title_re:
+        if not mw.title and not mw.title_re and not mw.auto_id:
             raise ConfigError(
                 "未配置主窗口识别条件",
-                detail="请在 config/default.yaml 或套件的 app.main_window 中设置 title 或 title_re",
+                detail="请在 config/default.yaml 或套件的 app.main_window 中设置 title / title_re / auto_id",
             )
 
     def apply_overrides(self, data: dict[str, Any] | None, *, prefix: str = "") -> None:

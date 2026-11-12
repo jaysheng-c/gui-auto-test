@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://app.autotest.local/schemas/flow.schema.json",
-  "title": "app 自动化测试流程 / 套件",
+  "$id": "https://dmsas.autotest.local/schemas/flow.schema.json",
+  "title": "DMSAS 自动化测试流程 / 套件",
   "description": "test_flow_file 目录下 JSON 文件的结构约束。顶层 oneOf 区分「套件」与「流程」：含 flows 字段的是套件，含 id/steps/tags 之一的是流程。动作专属参数（如 button、dx、keys）不做封闭约束，以便新增动作时无需同步改 schema；但 target 的字段是封闭集合，拼错会静默改变匹配行为，因此严格校验。",
   "oneOf": [
     { "$ref": "#/$defs/suite" },
@@ -51,10 +51,11 @@
             "main_window": {
               "type": "object",
               "additionalProperties": false,
-              "description": "主窗口识别条件。Qt 窗口 class_name 随版本变化，只应按标题识别。",
+              "description": "主窗口识别条件。Qt 窗口 class_name 随版本变化不可依赖；标题又可能被同进程的弹层窗口撞名，因此推荐用 auto_id（objectName）作主键。",
               "properties": {
                 "title": { "type": "string", "description": "窗口标题，精确匹配。" },
-                "title_re": { "type": "string", "description": "窗口标题正则，如 ^app.*。" },
+                "title_re": { "type": "string", "description": "窗口标题正则，如 ^DMSAS.*。" },
+                "auto_id": { "type": "string", "description": "窗口 AutomationId（Qt objectName），如 DMSASClass。可与 title/title_re 叠加以消除同名窗口的歧义。" },
                 "class_name": { "type": "string", "description": "窗口类名，Qt 下不建议依赖。" },
                 "timeout": { "type": "number", "minimum": 1, "description": "等待主窗口出现的超时（秒）。" }
               }

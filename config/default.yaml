@@ -19,13 +19,18 @@ app:
     # 表现为"所有控件都找不到"，极易误判成用例写错。
     QT_ACCESSIBILITY: "1"
   main_window:
-    # 二选一即可，title 精确匹配优先。
+    # 主窗口识别条件，几个字段同时给出时是 AND 关系。
     #
-    # 下面的 title_re 是按命名习惯推定的占位值 —— 拿到真实 app.exe 后，
-    # 先跑 `python auto_test.py --inspect --execute=... --keep-open`，
-    # 用 reports/inspect/*/windows.txt 里的真实标题收窄这个正则。
+    # 为什么必须有 auto_id：app 的下拉弹层（QComboBox popup）是独立顶层窗口，
+    # 标题同样是 app 且没有 objectName。只靠标题匹配会在弹层弹出的瞬间命中
+    # 2 个窗口，报 ElementAmbiguousError，从此所有 window=main 的步骤全部失败。
+    # auto_id（Qt objectName → UIA AutomationId）是唯一能区分二者的条件。
+    #
+    # 想核对真实值：跑 `python auto_test.py --inspect --execute=... --keep-open`，
+    # 看 reports/inspect/*/windows.txt 与 automation_ids.txt。
     title: null
     title_re: "^app"
+    auto_id: "appClass"
     # Qt 窗口类名形如 Qt643QWindowIcon，随 Qt 小版本变化，不可依赖
     class_name: null
     timeout: 60

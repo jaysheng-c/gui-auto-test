@@ -54,6 +54,11 @@ _KEY_SPECIAL = set("^%~+(){}[]")
 # ToggleState: 0=Off 1=On 2=Indeterminate
 _TOGGLE_OFF, _TOGGLE_ON = 0, 1
 
+# select_item 内部对 wrapper.select() 的短重试次数。
+# Qt 的下拉项在展开后才异步填进 UIA 树，首次 select 常常扑空；
+# 不能依赖外层 run.retries（它可能被配成 0）来兜这件事。
+_SELECT_ATTEMPTS = 3
+
 
 def escape_keys(text: str) -> str:
     """把 ``type_keys`` 的特殊字符转义为字面量。
@@ -627,22 +632,41 @@ class Element:
 
         def _f(w: Any) -> None:
             if hasattr(w, "expand") and hasattr(w, "select"):
-                try:
-                    w.select(item)
-                    return
-                except Exception as exc:  # noqa: BLE001
-                    _LOG.debug("select(%r) 失败: %s，回退到点击子项", item, exc)
-            # 回退：在子项里按文本找并点击
+                # Qt 的下拉项是展开后才**异步**填进 UIA 树的：第一次 select
+                # 往往报“找不到目标项”，而 expand/collapse 走过一轮之后就正常了。
+                # 把这件事推给外层 retries 兜底很脆（retries=0 就直接失败），
+                # 因此在这里就地短重试几次。
+                last_exc: Exception | None = None
+                for _ in range(_SELECT_ATTEMPTS):
+                    try:
+                        w.select(item)
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        last_exc = exc
+                        time.sleep(max(0.2, self.interval))
+                _LOG.debug("select(%r) 失败: %s，回退到点击子项", item, last_exc)
+            # 回退：在子项里按文本找并点击。
+            # 只能用 children()/descendants() —— ``child_window`` 是
+            # WindowSpecification 的方法，而 _with_retry 传进来的一律是 wrapper，
+            # 写 child_window 必然 AttributeError，把真正的失败原因（目标项找
+            # 不到）掩盖成一句莫名其妙的类型错误。
             if isinstance(item, str):
-                try:
-                    child = w.child_window(title=item)
-                    child.wait("exists visible", timeout=self.timeout, retry_interval=self.interval)
-                    child.wrapper_object().click_input()
-                    return
-                except _pwa_errors() as exc:
-                    raise ActionError(
-                        f"未找到可选择的子项 {item!r}", detail=f"{self.spec.describe()}；{exc}"
-                    ) from exc
+                for finder in ("children", "descendants"):
+                    fn = getattr(w, finder, None)
+                    if not callable(fn):
+                        continue
+                    try:
+                        matched = list(fn(title=item) or [])
+                    except Exception as exc:  # noqa: BLE001
+                        _LOG.debug("%s(title=%r) 失败: %s", finder, item, exc)
+                        continue
+                    if matched:
+                        matched[0].click_input()
+                        return
+                raise ActionError(
+                    f"未找到可选择的子项 {item!r}",
+                    detail=f"{self.spec.describe()}；请核对选项文本是否与界面完全一致",
+                )
             raise ActionError(
                 "控件不支持选择操作", detail=f"{self.spec.describe()}；item={item!r}"
             )

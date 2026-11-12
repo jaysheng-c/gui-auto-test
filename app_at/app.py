@@ -60,6 +60,51 @@ def _pwa_errors() -> tuple[type[BaseException], ...]:
     return (p["ElementNotFoundError"], p["TimeoutError"])
 
 
+# kill 残留进程后的等待上限（秒）。进程对象在句柄被他人持有时会滞留，
+# 等一小段再复查，避免把同一个僵尸重复计入清理次数。
+_LEFTOVER_WAIT = 3.0
+
+
+def _post_wm_close(pid: int) -> int:
+    """用纯 Win32 给该进程的所有可见顶层窗口投递 ``WM_CLOSE``，返回投递数。
+
+    为什么不用 pywinauto 的 ``wrapper.close()``：那是 **UIA/COM 调用**，而应用
+    在退出过程中很容易停止响应，此时单个 COM 调用会阻塞数分钟（实测
+    一次 teardown 卡了 264s，比整条用例的业务步骤还慢），而且这种阻塞发生在
+    调用内部，外层任何 ``timeout`` 都管不住。``PostMessage`` 只把消息放进
+    目标队列就立即返回，天然有界，也不需要 UIA 参与。
+
+    pywin32 不是硬依赖（见 :meth:`AppSession.foreground_pid`），缺失时返回 0，
+    由调用方降级到 ``terminate()``。
+    """
+    try:
+        import win32con
+        import win32gui
+        import win32process
+    except ImportError:  # pragma: no cover
+        return 0
+
+    posted = 0
+
+    def _on_window(hwnd: int, _extra: Any) -> None:
+        nonlocal posted
+        try:
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            if int(win32process.GetWindowThreadProcessId(hwnd)[1]) != pid:
+                return
+            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+            posted += 1
+        except Exception as exc:  # noqa: BLE001 - 单个窗口失败不影响其余
+            _LOG.debug("向 hwnd=%s 投递 WM_CLOSE 失败: %s", hwnd, exc)
+
+    try:
+        win32gui.EnumWindows(_on_window, None)
+    except Exception as exc:  # noqa: BLE001
+        _LOG.debug("枚举顶层窗口失败: %s", exc)
+    return posted
+
+
 # ----------------------------------------------------------------------
 # DPI
 # ----------------------------------------------------------------------
@@ -218,14 +263,21 @@ class AppSession:
             crit["title"] = mw.title
         if mw.title_re:
             crit["title_re"] = mw.title_re
+        if mw.auto_id:
+            # auto_id 在 find_elements 里是枚举后的二次过滤，因此能和 title/title_re
+            # 叠加使用，把同名的弹层窗口滤掉（app 下拉弹层标题也叫 app）。
+            crit["auto_id"] = mw.auto_id
         if mw.class_name:
             crit["class_name"] = mw.class_name
         # 不能传 process：``Application.window()`` 会自己注入 ``app=self``，
         # 两者共存时 pywinauto 报 "process and app cannot be combined"。
         # ``app=self`` 本身已经限定在本进程（connect/start 时已绑定 pid）。
-        if not any(k in crit for k in ("title", "title_re", "best_match")):
-            raise AppLaunchError("未配置主窗口识别条件", detail="请设置 app.main_window.title 或 title_re")
-
+        if not any(k in crit for k in ("title", "title_re", "best_match", "auto_id")):
+            raise AppLaunchError(
+                "未配置主窗口识别条件",
+                detail="请设置 app.main_window.title / title_re / auto_id",
+            )
+        
         limit = self.settings.scaled(timeout if timeout is not None else mw.timeout)
         spec = self.app.window(**crit)
         try:
@@ -236,7 +288,7 @@ class AppSession:
                 f"在 {limit:.0f}s 内未找到主窗口 {crit}",
                 detail=(
                     f"当前可见顶层窗口: {titles or '（无）'}。"
-                    "请核对 config/default.yaml 的 app.main_window.title_re"
+                    "请核对 config/default.yaml 或套件的 app.main_window.title_re / auto_id"
                 ),
             ) from exc
 
@@ -393,15 +445,20 @@ class AppSession:
 
         优先走正常关闭（``WM_CLOSE``），让应用有机会保存状态、释放资源；
         ``force`` 或正常关闭超时时直接 kill。
+        
+        WM_CLOSE 一律用 :func:`_post_wm_close` 投递，**不走 UIA**：退出中的
+        应用常常不再响应 COM，一个 UIA 调用就能把 teardown 阻塞几分钟。
+        换成 PostMessage 后，本方法的耗时上限就是 ``timeout``。
         """
         if not self.is_alive():
             self._close_app_log_files()
             return
         if not force:
             try:
-                if self._main_wrapper is not None:
-                    self._main_wrapper.close()
-                elif self.proc is not None:
+                posted = _post_wm_close(self.pid) if self.pid else 0
+                if posted == 0 and self.proc is not None:
+                    # 投不进去（窗口已销毁 / 缺 pywin32），退回 terminate
+                    _LOG.debug("未能投递 WM_CLOSE，改用 terminate()")
                     self.proc.terminate()
                 if self.wait_exit(timeout):
                     _LOG.info("应用已正常退出")
@@ -433,25 +490,55 @@ class AppSession:
         """清理同名残留进程，避免污染下一条用例。
 
         只清理**不是本次启动**的同名进程；本次进程由 ``close()`` 负责。
+
+        ``kill()`` 只是发出 TerminateProcess：只要还有别的进程持有它的句柄，
+        进程对象就会继续留在进程表里（``name`` 仍可读）。不等待也不复查的话，
+        下一次扫描会把同一个僵尸再数一遍，于是日志里出现同一 pid 被“清理”
+        多次、计数恒为 1 的假象 —— 而它实际仍占着文件锁与设备句柄。
         """
         name = self.settings.app.process_name
         if not name and self.exe_path:
             name = self.exe_path.name
         if not name:
             return 0
-        killed = 0
-        for p in psutil.process_iter(["pid", "name"]):
+
+        def _scan() -> list[Any]:
+            found: list[Any] = []
+            for p in psutil.process_iter(["pid", "name"]):
+                try:
+                    if (p.info["name"] or "").lower() != name.lower():
+                        continue
+                    if self.pid is not None and p.info["pid"] == self.pid:
+                        continue
+                    found.append(p)
+                except (psutil.Error, KeyError):
+                    continue
+            return found
+
+        targets = _scan()
+        for p in targets:
+            pid = p.info["pid"]
             try:
-                if (p.info["name"] or "").lower() != name.lower():
-                    continue
-                if self.pid is not None and p.info["pid"] == self.pid:
-                    continue
+                _LOG.warning("清理残留进程 %s (pid=%s)", name, pid)
                 p.kill()
-                killed += 1
-                _LOG.warning("清理残留进程 %s (pid=%s)", name, p.info["pid"])
-            except (psutil.Error, KeyError):
+            except psutil.NoSuchProcess:
                 continue
-        return killed
+            except psutil.Error as exc:
+                _LOG.error("无法结束残留进程 pid=%s：%s", pid, exc)
+                continue
+            try:
+                p.wait(timeout=_LEFTOVER_WAIT)
+            except (psutil.TimeoutExpired, psutil.Error):
+                pass
+
+        wanted = {p.info["pid"] for p in targets}
+        stuck = sorted(p.info["pid"] for p in _scan() if p.info["pid"] in wanted)
+        if stuck:
+            _LOG.error(
+                "以下残留进程结束失败，可能仍占用文件锁/设备句柄: %s",
+                ", ".join(str(x) for x in stuck),
+            )
+        return len(targets) - len(stuck)
 
     # ------------------------------------------------------------------
     # 应用日志

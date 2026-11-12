@@ -628,7 +628,11 @@ class FlowRunner:
         # app 登录后标题可能变化，写死精确标题会让后续步骤全部定位失败
         mw = settings.app.main_window
         ctx.register_main_window(
-            title=mw.title, title_re=mw.title_re, class_name=mw.class_name, process=session.pid
+            title=mw.title,
+            title_re=mw.title_re,
+            auto_id=mw.auto_id,
+            class_name=mw.class_name,
+            process=session.pid,
         )
         if self.app_env is None:
             self.app_env = session.env_snapshot()

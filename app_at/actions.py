@@ -216,7 +216,13 @@ def _close_window(ctx: RunContext, step: Step, element: Element | None) -> Actio
         ctx.app.close(force=True)
         return ActionResult(message="已强制结束被测进程")
     el = _require(step, element, "窗口定位条件")
-    el.close()
+    try:
+        el.close()
+    except Exception as exc:  # noqa: BLE001
+        # teardown 里很常见：前一步 Alt+F4 已经把窗口关掉了，此时 WM_CLOSE 无处可发。
+        # 绝不能就此抛出 —— 一旦抛出，下面的“等退出 + 强制结束”兜底就都不会执行，
+        # 结果反而是留下一具僵尸进程污染下一条用例。记 debug 后继续等进程退出即可。
+        _LOG.debug("发送 WM_CLOSE 失败（%s），继续等待进程退出", exc)
     if not ctx.app.wait_exit(timeout):
         _LOG.warning("窗口关闭后进程仍在运行，%.0fs 后将强制结束", timeout)
         ctx.app.close(force=True)
